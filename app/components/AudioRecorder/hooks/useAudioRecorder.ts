@@ -78,33 +78,33 @@ export function useAudioRecorder() {
       recognition.lang = "en-US";
       recognition.maxAlternatives = 1; // Reduce processing overhead
 
-      // For Chrome/Edge - reduce latency
-      if ("webkitSpeechRecognition" in window) {
-        // @ts-expect-error - Chrome-specific properties
-        recognition.serviceURI = undefined; // Use default fast service
-      }
-
       recognition.onresult = (event: SpeechRecognitionEvent) => {
         let interim = "";
+        const finalResults: TranscriptSegment[] = [];
 
+        // Process results more efficiently
         for (let i = event.resultIndex; i < event.results.length; i++) {
           const transcript = event.results[i][0].transcript;
 
           if (event.results[i].isFinal) {
-            const newSegment: TranscriptSegment = {
+            // Batch final results
+            finalResults.push({
               id: `${Date.now()}-${i}`,
-              text: transcript,
+              text: transcript.trim(),
               timestamp: new Date().toLocaleTimeString(),
               isFinal: true,
-            };
-            setTranscripts((prev) => [...prev, newSegment]);
-            setInterimTranscript("");
+            });
           } else {
             interim += transcript;
           }
         }
 
-        if (interim) {
+        // Update state in a single batch if we have final results
+        if (finalResults.length > 0) {
+          setTranscripts((prev) => [...prev, ...finalResults]);
+          setInterimTranscript("");
+        } else if (interim) {
+          // Show interim results immediately
           setInterimTranscript(interim);
         }
       };
@@ -159,7 +159,7 @@ export function useAudioRecorder() {
                   console.error("Failed to restart after delay:", err);
                 }
               }
-            }, 100);
+            }, 50);
           }
         }
       };
