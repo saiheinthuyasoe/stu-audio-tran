@@ -5,8 +5,36 @@ import type {
   SpeechRecognitionErrorEvent,
   TranscriptSegment,
 } from "../types";
+import type { LanguageCode } from "../constants";
 
-export function useAudioRecorder() {
+// Convert language code to BCP-47 format for Web Speech API
+function getRecognitionLanguage(langCode: LanguageCode): string {
+  const languageMap: Record<string, string> = {
+    en: "en-US",
+    es: "es-ES",
+    fr: "fr-FR",
+    de: "de-DE",
+    it: "it-IT",
+    pt: "pt-PT",
+    ru: "ru-RU",
+    ja: "ja-JP",
+    ko: "ko-KR",
+    "zh-CN": "zh-CN",
+    "zh-TW": "zh-TW",
+    ar: "ar-SA",
+    hi: "hi-IN",
+    th: "th-TH",
+    vi: "vi-VN",
+    id: "id-ID",
+    nl: "nl-NL",
+    pl: "pl-PL",
+    tr: "tr-TR",
+    my: "my-MM",
+  };
+  return languageMap[langCode] || "en-US";
+}
+
+export function useAudioRecorder(recordingLanguage: LanguageCode = "en") {
   const [isRecording, setIsRecording] = useState(false);
   const [transcripts, setTranscripts] = useState<TranscriptSegment[]>([]);
   const [interimTranscript, setInterimTranscript] = useState("");
@@ -75,8 +103,10 @@ export function useAudioRecorder() {
 
       recognition.continuous = true;
       recognition.interimResults = true;
-      recognition.lang = "en-US";
-      recognition.maxAlternatives = 1; // Reduce processing overhead
+      recognition.lang = getRecognitionLanguage(recordingLanguage);
+      recognition.maxAlternatives = 3; // Get multiple alternatives for better accuracy
+      
+      console.log(`Speech recognition started with language: ${recognition.lang}`);
 
       recognition.onresult = (event: SpeechRecognitionEvent) => {
         let interim = "";
@@ -84,18 +114,42 @@ export function useAudioRecorder() {
 
         // Process results more efficiently
         for (let i = event.resultIndex; i < event.results.length; i++) {
-          const transcript = event.results[i][0].transcript;
+          const result = event.results[i];
+          
+          // Get the best alternative (highest confidence)
+          let bestTranscript = result[0].transcript;
+          let bestConfidence = result[0].confidence || 1;
+          
+          // Check other alternatives if available
+          for (let j = 1; j < result.length && j < 3; j++) {
+            if (result[j] && result[j].confidence > bestConfidence) {
+              bestTranscript = result[j].transcript;
+              bestConfidence = result[j].confidence;
+            }
+          }
+          
+          // Clean up the transcript
+          const transcript = bestTranscript
+            .trim()
+            .replace(/\s+/g, ' ') // Normalize whitespace
+            .replace(/^(\w)/, (match) => match.toUpperCase()); // Capitalize first letter
+          
+          console.log(`Result ${i}: "${transcript}" (isFinal: ${result.isFinal}, confidence: ${bestConfidence.toFixed(2)})`);
 
-          if (event.results[i].isFinal) {
-            // Batch final results
-            finalResults.push({
-              id: `${Date.now()}-${i}`,
-              text: transcript.trim(),
-              timestamp: new Date().toLocaleTimeString(),
-              isFinal: true,
-            });
-          } else {
-            interim += transcript;
+          if (result.isFinal) {
+            // Only add non-empty transcripts with reasonable confidence
+            if (transcript.length > 0 && bestConfidence > 0.3) {
+              finalResults.push({
+                id: `${Date.now()}-${i}-${Math.random()}`,
+                text: transcript,
+                timestamp: new Date().toLocaleTimeString(),
+                isFinal: true,
+              });
+            } else if (transcript.length > 0) {
+              console.warn(`Low confidence result ignored: "${transcript}" (confidence: ${bestConfidence})`);
+            }
+          } else if (transcript.length > 0) {
+            interim += transcript + ' ';
           }
         }
 
@@ -103,9 +157,9 @@ export function useAudioRecorder() {
         if (finalResults.length > 0) {
           setTranscripts((prev) => [...prev, ...finalResults]);
           setInterimTranscript("");
-        } else if (interim) {
-          // Show interim results immediately
-          setInterimTranscript(interim);
+        } else if (interim.trim()) {
+          // Only show non-empty interim results
+          setInterimTranscript(interim.trim());
         }
       };
 
@@ -143,6 +197,7 @@ export function useAudioRecorder() {
       };
 
       recognition.onend = () => {
+        console.log("Speech recognition ended");
         // Restart recognition if still recording (use ref for immediate state)
         if (isRecordingRef.current && recognitionRef.current) {
           try {
@@ -150,7 +205,7 @@ export function useAudioRecorder() {
             recognitionRef.current.start();
           } catch (e) {
             console.error("Error restarting recognition:", e);
-            // Try again after a short delay
+            // Try again after a very short delay
             setTimeout(() => {
               if (isRecordingRef.current && recognitionRef.current) {
                 try {
@@ -159,7 +214,7 @@ export function useAudioRecorder() {
                   console.error("Failed to restart after delay:", err);
                 }
               }
-            }, 50);
+            }, 100);
           }
         }
       };

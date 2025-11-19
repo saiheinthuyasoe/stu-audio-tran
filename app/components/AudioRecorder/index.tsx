@@ -16,6 +16,10 @@ import type { HistorySession } from "./types";
 
 export default function AudioRecorder() {
   const { isClient, isSupported, supportError } = useBrowserSupport();
+  
+  // Use English for recording (most reliable), translate to selected language
+  const [recordingLanguage] = useState<LanguageCode>("en");
+  
   const {
     isRecording,
     transcripts,
@@ -27,7 +31,7 @@ export default function AudioRecorder() {
     clearTranscripts,
     setTranscripts,
     clearError,
-  } = useAudioRecorder();
+  } = useAudioRecorder(recordingLanguage);
 
   const { history, isLoaded, saveSession, deleteSession, clearHistory } =
     useHistory();
